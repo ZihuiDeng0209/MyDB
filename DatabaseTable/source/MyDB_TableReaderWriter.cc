@@ -1,123 +1,194 @@
 
+
+/****************************************************
+** COPYRIGHT 2016, Chris Jermaine, Rice University **
+**                                                 **
+** The MyDB Database System, COMP 530              **
+** Note that this file contains SOLUTION CODE for  **
+** A2.  You should not be looking at this file     **
+** unless you have completed A2!                   **
+****************************************************/
+
+
 #ifndef TABLE_RW_C
 #define TABLE_RW_C
 
 #include <fstream>
-#include <string>
-//#include <DatabaseTable/headers/MyDB_TableReaderWriter.h>
-
+#include <limits>
+#include <queue>
 #include "MyDB_PageReaderWriter.h"
+#include "MyDB_TableRecIterator.h"
+#include "MyDB_TableRecIteratorAlt.h"
 #include "MyDB_TableReaderWriter.h"
-#include <string>
-#include <sstream>
-#include <cstring>
-#include <iostream>
-#include <time.h>
-#include <unistd.h>
+#include <set>
 #include <vector>
+#include "Sorting.h"
 
 using namespace std;
 
-MyDB_TableReaderWriter :: MyDB_TableReaderWriter (MyDB_TablePtr toTable, MyDB_BufferManagerPtr toBuffer){
-	myBuffer = toBuffer;
-	myTable = toTable;
-	int lastPage = myTable->lastPage();
-	if(lastPage!=-1){	// Table had been modified, need to build pageReaderWriter for all modified pages
-		for (int i=0;i<=lastPage;i++){
-			MyDB_PageHandle tempPage = myBuffer->getPage(myTable,i);
-			pages.push_back(MyDB_PageReaderWriter(tempPage,myBuffer,false));
-		}
+MyDB_TableReaderWriter :: MyDB_TableReaderWriter (MyDB_TablePtr forMeIn, MyDB_BufferManagerPtr myBufferIn) {
+	forMe = forMeIn;
+	myBuffer = myBufferIn;
+
+	if (forMe->lastPage () == -1) {
+		forMe->setLastPage (0);
+		lastPage = make_shared <MyDB_PageReaderWriter> (*this, forMe->lastPage ());
+		lastPage->clear ();
+	} else {
+		lastPage = make_shared <MyDB_PageReaderWriter> (*this, forMe->lastPage ());	
 	}
 }
 
-MyDB_PageReaderWriter &MyDB_TableReaderWriter :: operator [] (size_t pageNum) {
-	// if out of index (after last page), create those pages
-	if(pageNum > myTable->lastPage()){
-		for(int i=myTable->lastPage()+1;i<=pageNum;i++){
-			MyDB_PageHandle tempPage = myBuffer->getPage(myTable,i);
-			myTable->setLastPage((size_t)i);
-			pages.push_back(MyDB_PageReaderWriter(tempPage,myBuffer,true));
-		}
+MyDB_BufferManagerPtr MyDB_TableReaderWriter :: getBufferMgr () {
+	return myBuffer;
+}
+
+MyDB_TablePtr MyDB_TableReaderWriter :: getTable () {
+	return forMe;
+}
+
+int MyDB_TableReaderWriter :: getNumPages () {
+	return forMe->lastPage () + 1;
+}
+
+MyDB_PageReaderWriter MyDB_TableReaderWriter :: getPinned (size_t i) {
+	return MyDB_PageReaderWriter (true, *this, i);
+}
+
+MyDB_PageReaderWriter MyDB_TableReaderWriter :: operator [] (size_t i) {
+	
+	// see if we are going off of the end of the file... if so, then clear those pages
+	while (i > forMe->lastPage ()) {
+		forMe->setLastPage (forMe->lastPage () + 1);
+		lastPage = make_shared <MyDB_PageReaderWriter> (*this, forMe->lastPage ());
+		lastPage->clear ();	
 	}
-	return pages[pageNum];
+
+	// now get the page
+	MyDB_PageReaderWriter arrayAccessBuffer (*this, i);
+	return arrayAccessBuffer;
 }
 
 MyDB_RecordPtr MyDB_TableReaderWriter :: getEmptyRecord () {
-	return make_shared <MyDB_Record> (myTable->getSchema());
+
+	// use the schema to produce an empty record
+	return make_shared <MyDB_Record> (forMe->getSchema ());
 }
 
-MyDB_PageReaderWriter &MyDB_TableReaderWriter :: last () {
-	if(myTable->lastPage()==-1){	// if no page yet, create new and return
-		MyDB_PageHandle tempPage = myBuffer->getPage(myTable,0);
-		pages.push_back(MyDB_PageReaderWriter(tempPage,myBuffer,true));
-		myTable->setLastPage((size_t)0);
+MyDB_PageReaderWriter MyDB_TableReaderWriter :: last () {
+	MyDB_PageReaderWriter arrayAccessBuffer (*this, forMe->lastPage ());
+	return arrayAccessBuffer;
+}
+
+void MyDB_TableReaderWriter :: append (MyDB_RecordPtr appendMe) {
+
+	// try to append the record on the current page...
+	if (!lastPage->append (appendMe)) {
+
+		// if we cannot, then get a new last page and append
+		forMe->setLastPage (forMe->lastPage () + 1);
+		lastPage = make_shared <MyDB_PageReaderWriter> (*this, forMe->lastPage ());
+		lastPage->clear ();
+		lastPage->append (appendMe);
 	}
-	return pages[myTable->lastPage()];
 }
 
+pair <vector <size_t>, size_t>  MyDB_TableReaderWriter :: loadFromTextFile (string fName) {
 
-void MyDB_TableReaderWriter :: append (MyDB_RecordPtr rec) {
-	bool success = last().append(rec);
-	if(!success){
-		MyDB_PageHandle tempPage = myBuffer->getPage(myTable,myTable->lastPage()+1);
-		MyDB_PageReaderWriter newPRW(tempPage,myBuffer,true);
-		newPRW.append(rec);
-		pages.push_back(newPRW);
-		myTable->setLastPage((size_t)myTable->lastPage()+1);
-	}
+	// empty out the database file
+	forMe->setLastPage (0);
+	lastPage = make_shared <MyDB_PageReaderWriter> (*this, forMe->lastPage ());
+	lastPage->clear ();
 
-}
-
-void MyDB_TableReaderWriter :: loadFromTextFile (string fromMe) {
-	// reset everything
-	pages.clear();
-	myTable->setLastPage((size_t)-1);
-	MyDB_PageReaderWriter newPage = last();
-	MyDB_RecordPtr newRec = getEmptyRecord();
-
-	// Reference: http://www.cplusplus.com/doc/tutorial/files/
+	// try to open the file
 	string line;
-	ifstream importFile (fromMe);
-	if (importFile.is_open()) {
-		while (getline(importFile, line)) {
-			//cout<<line<<endl;
-			newRec->fromString(line);
-			append(newRec);
-		}
-		importFile.close();
-	}else {
-		cout << "Could not read in from file "+fromMe << endl;
+	ifstream myfile (fName);
+
+	MyDB_RecordPtr tempRec = getEmptyRecord ();
+
+	// this data structure is used for apporoximate counting of the number of distinct
+	// values of each attribute
+	vector <pair <set <size_t>, int>> allHashes;
+	for (int i = 0; i < tempRec->getSchema ()->getAtts ().size (); i++) {
+		set <size_t> temp1;
+		allHashes.push_back (make_pair (temp1, 1));
 	}
 
-}
+	// if we opened it, read the contents
+	size_t counter = 0;
+	if (myfile.is_open()) {
 
-MyDB_RecordIteratorPtr MyDB_TableReaderWriter :: getIterator (MyDB_RecordPtr rec) {
-	return make_shared <MyDB_TableRecIterator> (rec,this);
-}
+		// loop through all of the lines
+		while (getline (myfile,line)) {
+			tempRec->fromString (line);		
+			counter++;
+			// hash all of the attributes... this is used for counting
+			int i = 0;
+			for (auto &a : allHashes) {
 
-void MyDB_TableReaderWriter :: writeIntoTextFile (string toMe) {
-	MyDB_RecordPtr temp = getEmptyRecord();
+				// insert the hash
+				size_t hash = tempRec->getAtt (i)->hash ();
+				i++;
+				if (hash % a.second != 0)
+					continue;
 
-	// Reference: http://www.cplusplus.com/doc/tutorial/files/
-	ofstream exportFile (toMe);
-	if (exportFile.is_open()){
-		MyDB_RecordIteratorPtr outTemp = getIterator(temp);
-		while(outTemp->hasNext()){
-			outTemp->getNext();
-			stringstream ss;
-			ss << temp;
-			//cout << ss.str() <<endl;
-			exportFile << ss.str() << endl;
+				a.first.insert (hash);
+
+				// if we have too many items, compact them
+				#define MAX_SIZE 1000
+				if (a.first.size () > MAX_SIZE) {
+					a.second *= 2;
+					set <size_t> newSet;
+					for (auto &num : a.first) {
+						if (num % a.second == 0)
+							newSet.insert (num);
+					}
+					a.first = newSet;	
+				}
+			}
+			append (tempRec);
 		}
-		exportFile.close();
-	}else {
-		cout << "Could not write to file "+toMe << endl;
+		myfile.close ();
 	}
+	cout << "Loaded " << counter << " records.\n";
+
+	// finally, compute the vector of estimates
+	vector <size_t> returnVal;
+	for (auto &a : allHashes) {
+		size_t est = ((size_t) a.first.size ()) * a.second;
+		returnVal.push_back (est);
+	}
+	return make_pair (returnVal, counter);
 }
 
-// Personal Public Helper Function--------------------------------------------------------
-int MyDB_TableReaderWriter::getLastNum() {
-	return myTable->lastPage();
+MyDB_RecordIteratorPtr MyDB_TableReaderWriter :: getIterator (MyDB_RecordPtr iterateIntoMe) {
+	return make_shared <MyDB_TableRecIterator> (*this, forMe, iterateIntoMe);
+}
+
+MyDB_RecordIteratorAltPtr MyDB_TableReaderWriter :: getIteratorAlt () {
+	return make_shared <MyDB_TableRecIteratorAlt> (*this, forMe);
+}
+
+MyDB_RecordIteratorAltPtr MyDB_TableReaderWriter :: getIteratorAlt (int lowPage, int highPage) {
+	return make_shared <MyDB_TableRecIteratorAlt> (*this, forMe, lowPage, highPage);
+}
+
+void MyDB_TableReaderWriter :: writeIntoTextFile (string fName) {
+	
+	// open up the output file
+	ofstream output;
+	output.open (fName);
+
+	// get an empty record
+	MyDB_RecordPtr tempRec = getEmptyRecord ();;		
+
+	// and write out all of the records
+	MyDB_RecordIteratorPtr myIter = getIterator (tempRec);
+	while (myIter->hasNext ()) {
+		myIter->getNext ();
+                output << tempRec << "\n";
+	}
+	output.close ();
 }
 
 #endif

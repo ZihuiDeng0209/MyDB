@@ -4,38 +4,26 @@
 
 #include "MyDB_PageReaderWriter.h"
 #include "MyDB_TableRecIterator.h"
-#include "MyDB_TableRecIteratorAlt.h"
 #include "MyDB_TableReaderWriter.h"
-
-class IteratorComparator {
-
-public:
-
-	IteratorComparator (function <bool ()> comparatorIn, MyDB_RecordPtr lhsIn,  MyDB_RecordPtr rhsIn) {
-		comparator = comparatorIn;
-		lhs = lhsIn;
-		rhs = rhsIn;
-	}
-
-	bool operator () (MyDB_RecordIteratorAltPtr lhsIter, MyDB_RecordIteratorAltPtr rhsIter) {
-		lhsIter->getCurrent(lhs);
-		rhsIter->getCurrent(rhs);
-		return !comparator ();
-	}
-
-private:
-
-	function <bool ()> comparator;
-	MyDB_RecordPtr lhs;
-	MyDB_RecordPtr rhs;
-
-};
+#include "IteratorComparator.h"
 
 // performs a TPMMS of the table sortMe.  The results are written to sortIntoMe.  The run 
-// size for the first phase of the TPMMS is given by runSize.  Comarisons are performed 
+// size for the first phase of the TPMMS is given by runSize.  Comparisons are performed 
 // using comparator, lhs, rhs
 void sort (int runSize, MyDB_TableReaderWriter &sortMe, MyDB_TableReaderWriter &sortIntoMe,
         function <bool ()> comparator, MyDB_RecordPtr lhs, MyDB_RecordPtr rhs);
+
+// Accepts the input file sortMe, and then uses the specified comparator over the records lhs 
+// and rhs to sort the file into a set of sorted runs of length at most runSize.  It then
+// constructs an iterator over those runs, that can be used to scan the data in sorted order
+// in the input file.
+MyDB_RecordIteratorAltPtr buildItertorOverSortedRuns (int runSize, MyDB_TableReaderWriter &sortMe,
+        function <bool ()> comparator, MyDB_RecordPtr lhs, MyDB_RecordPtr rhs);
+
+// just like the above, except that in addition, the specified selection predicates are run
+// over the input records so that only the records matching the selection predicates is sorted
+MyDB_RecordIteratorAltPtr buildItertorOverSortedRuns (int runSize, MyDB_TableReaderWriter &sortMe,
+        function <bool ()> comparator, MyDB_RecordPtr lhs, MyDB_RecordPtr rhs, string pred);
 
 // helper function.  Gets two iterators, leftIter and rightIter.  It is assumed that these are iterators over
 // sorted lists of records.  This function then merges all of those records into a list of anonymous pages,
@@ -43,17 +31,5 @@ void sort (int runSize, MyDB_TableReaderWriter &sortMe, MyDB_TableReaderWriter &
 // Comparisons are performed using comparator, lhs, rhs
 vector <MyDB_PageReaderWriter> mergeIntoList (MyDB_BufferManagerPtr parent, MyDB_RecordIteratorAltPtr leftIter,
         MyDB_RecordIteratorAltPtr rightIter, function <bool ()> comparator, MyDB_RecordPtr lhs, MyDB_RecordPtr rhs);
-
-// accepts a list of iterators called mergeUs.  It is assumed that these are all iterators over sorted lists
-// of records.  This function then merges all of those records and appends them to the file sortIntoMe.  If
-// all of the iterators are over sorted lists of records, then all of the records appended onto the end of
-// sortIntoMe will be sorted.  Comparisons are performed using comparator, lhs, rhs
-void mergeIntoFile (MyDB_TableReaderWriter &sortIntoMe, vector <MyDB_RecordIteratorAltPtr> &mergeUs,
-        function <bool ()> comparator, MyDB_RecordPtr lhs, MyDB_RecordPtr rhs);
-
-// Helper function for mergeIntoList(), will append a record onto the page, or create a new one
-// if necessary
-void appendNew(MyDB_BufferManagerPtr &thisBuffer, MyDB_RecordPtr &rec, MyDB_PageReaderWriter &myPage,
-			   vector <MyDB_PageReaderWriter> &sortedPages);
 
 #endif

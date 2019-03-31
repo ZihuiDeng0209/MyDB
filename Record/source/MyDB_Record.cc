@@ -366,7 +366,7 @@ pair <func, MyDB_AttTypePtr> MyDB_Record :: compileHelper(char * &vals) {
 			for (; vals[cnt] != ']'; cnt++);
 
 			// copy the string over
-			char name[cnt + 1];
+			char name[cnt];
 			for (cnt = 0; vals[cnt] != ']'; cnt++) {
 				name[cnt] = vals[cnt];
 			}	
