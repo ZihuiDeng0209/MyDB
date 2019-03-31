@@ -1,6 +1,6 @@
 # MyDB
 
-This is COMP 530 Course Project from Rice University.
+This is COMP 530 Database System Implementation Course Project from Rice University.
 
 Parts of the code are provided by instructor, who has the copyrights of the code.
 
