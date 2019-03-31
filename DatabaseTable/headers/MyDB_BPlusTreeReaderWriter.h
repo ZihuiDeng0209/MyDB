@@ -1,6 +1,5 @@
 
 
-
 #ifndef BPLUS_H
 #define BPLUS_H
 
@@ -24,6 +23,8 @@ class MyDB_BPlusTreeReaderWriter : public MyDB_TableReaderWriter {
 
 public:
 
+	/* NOTE THAT EACH OF THESE METHODS ARE REQUIRED */
+
 	// create a BTree TableReaderWriter
 	MyDB_BPlusTreeReaderWriter (string nameOfAttToOrderOn, MyDB_TablePtr forMe, MyDB_BufferManagerPtr myBuffer);
 
@@ -44,6 +45,9 @@ public:
 	void printTree ();
 
 private:
+
+	/* NOTE THAT EACH OF THESE METHODS ARE OPTIONAL.  They are a suggestion for a set of helper
+           methods that you might consider including in order to get your stuff to work. */
 
 	// gets a list of pages that might have data for an iterator... any leaf page that can possibly
 	// have a value in the range [low, high], inclusive should be returned from this call
@@ -66,13 +70,16 @@ private:
 	// gets the search key from a LN record
 	MyDB_AttValPtr getKey (MyDB_RecordPtr fromMe);
 
-	// recurive helper for printing the file
-	void printTree (int whichPage, int depth);
-
 	// constructs an returns a comparator for the two records given... both must either be IN records for this particular
 	// tree, or they must be LN records for this tree, or a combination.  The resulting comparator returns true if and
 	// only if the first record has a key value less than the second record
 	function <bool ()> buildComparator (MyDB_RecordPtr lhs, MyDB_RecordPtr rhs);
+
+	// Helper function to set up iterator
+	MyDB_RecordIteratorAltPtr getIteratorHelper (MyDB_AttValPtr low, MyDB_AttValPtr high, bool sort);
+
+	// Helper function to recursively print out tree
+	void printTreeHelper (int page, int level);
 
 	// the location (page number) of the root in the tree
 	int rootLocation;
