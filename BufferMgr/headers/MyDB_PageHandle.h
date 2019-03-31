@@ -1,12 +1,16 @@
+// version 0116.1
 
 #ifndef PAGE_HANDLE_H
 #define PAGE_HANDLE_H
 
 #include <memory>
+#include "MyDB_BufferManager.h"
+
 
 // page handles are basically smart pointers
 using namespace std;
 class MyDB_PageHandleBase;
+class Page;
 typedef shared_ptr <MyDB_PageHandleBase> MyDB_PageHandle;
 
 class MyDB_PageHandleBase {
@@ -34,11 +38,19 @@ public:
 	~MyDB_PageHandleBase ();
 
 	// FEEL FREE TO ADD ADDITIONAL PUBLIC METHODS
+	// constructor
+	MyDB_PageHandleBase(Page* page);
+	// get the page that handle is pointing to
+	Page* getPage();
 
 private:
 
 	// YOUR CODE HERE
+	Page* toPage;
+
 };
+
+
 
 #endif
 
